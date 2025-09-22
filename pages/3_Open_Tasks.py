@@ -1,13 +1,7 @@
 import streamlit as st
-from services.task_manager import load_tasks
-from components.task_card import render_task_card
+from services.task_manager import by_status
+from components.task_card import task_card
 
-st.title("🔓 Open Tasks")
-
-tasks = [t for t in load_tasks() if t["status"] == "Open"]
-
-if not tasks:
-    st.info("No open tasks.")
-else:
-    for task in tasks:
-        render_task_card(task)
+st.title("Open Tasks")
+for t in by_status("Open"):
+    task_card(t, on_open=lambda tid=t["id"]: st.experimental_set_query_params(task=tid) or st.switch_page("pages/5_Task_Detail.py"))
