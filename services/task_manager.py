@@ -1,45 +1,47 @@
 import json
-from datetime import datetime, timedelta
-from pathlib import Path
+import os
+from datetime import datetime
 
-DATA_FILE = Path("data/tasks.json")
+DATA_FILE = os.path.join("data", "tasks.json")
 
+# --- Ensure data folder exists ---
+os.makedirs("data", exist_ok=True)
+
+# --- Load tasks ---
 def load_tasks():
-    if not DATA_FILE.exists():
+    if not os.path.exists(DATA_FILE):
         return []
     with open(DATA_FILE, "r") as f:
-        return json.load(f)
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return []
 
+# --- Save all tasks back ---
 def save_tasks(tasks):
     with open(DATA_FILE, "w") as f:
         json.dump(tasks, f, indent=4)
 
-def add_task(title, description, category="General"):
+# --- Add a new task ---
+def save_task(task):
     tasks = load_tasks()
-    new_task = {
-        "id": f"TASK-{len(tasks)+1}",
-        "title": title,
-        "description": description,
-        "category": category,
-        "status": "Open",
-        "created_at": datetime.now().isoformat(),
-        "updates": [],
-    }
-    tasks.append(new_task)
+    tasks.append(task)
     save_tasks(tasks)
-    return new_task
 
-def get_task_by_id(task_id):
-    tasks = load_tasks()
-    return next((t for t in tasks if t["id"] == task_id), None)
-
-def update_task(task_id, update_msg, status=None):
+# --- Update a task (by ID) ---
+def update_task(task_id, updates: dict):
     tasks = load_tasks()
     for task in tasks:
         if task["id"] == task_id:
-            task["updates"].append(
-                {"time": datetime.now().isoformat(), "msg": update_msg}
-            )
-            if status:
-                task["status"] = status
+            task.update(updates)
+            task["updated_at"] = datetime.now().isoformat()
+            break
     save_tasks(tasks)
+
+# --- Get a task by ID ---
+def get_task(task_id):
+    tasks = load_tasks()
+    for task in tasks:
+        if task["id"] == task_id:
+            return task
+    return None
