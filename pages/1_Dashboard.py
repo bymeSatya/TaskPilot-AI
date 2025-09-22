@@ -1,167 +1,115 @@
+# pages/1_Dashboard.py
 import streamlit as st
-from datetime import datetime
-from services.task_manager import load_tasks, save_task
+from datetime import datetime, timedelta
+from services.task_manager import load_tasks, add_task, save_tasks
 
 st.set_page_config(page_title="Dashboard", layout="wide")
+st.title("📊 Dashboard")
 
-# --- Custom CSS for KPI Cards + Modal ---
-st.markdown("""
+# --- Load tasks ---
+tasks = load_tasks()
+
+# --- KPI calculations ---
+now = datetime.now()
+open_tasks = [t for t in tasks if t.get("status") != "Closed"]
+overdue = [
+    t for t in tasks 
+    if (now - datetime.fromisoformat(t["created_at"])) > timedelta(days=5) and t["status"] != "Closed"
+]
+nearing_deadline = [
+    t for t in tasks 
+    if timedelta(days=3) <= (now - datetime.fromisoformat(t["created_at"])) <= timedelta(days=5)
+    and t["status"] != "Closed"
+]
+closed = [t for t in tasks if t.get("status") == "Closed"]
+
+# --- KPI Display ---
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+with kpi1:
+    st.markdown("### Open Tasks")
+    st.metric(label="Tasks currently in progress or not started", value=len(open_tasks))
+with kpi2:
+    st.markdown("### Overdue")
+    st.metric(label="Tasks older than 5 days", value=len(overdue))
+with kpi3:
+    st.markdown("### Nearing Deadline")
+    st.metric(label="Tasks 3-5 days old", value=len(nearing_deadline))
+with kpi4:
+    st.markdown("### Closed Tasks")
+    st.metric(label="Total tasks completed", value=len(closed))
+
+# --- Create Task Button (opens modal-like form) ---
+if "show_create_task" not in st.session_state:
+    st.session_state.show_create_task = False
+
+st.markdown(
+    """
     <style>
-    .kpi-card {
-        border-radius: 15px;
-        padding: 20px;
-        background-color: #1c1f26;
-        text-align: center;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-        margin: 5px;
-    }
-    .kpi-title {
-        font-size: 16px;
-        font-weight: 600;
-        color: #ffffff;
-    }
-    .kpi-value {
-        font-size: 32px;
-        font-weight: bold;
-        margin: 5px 0;
-    }
-    .kpi-desc {
-        font-size: 13px;
-        color: #aaa;
-    }
-    .green { color: #4CAF50; }
-    .red { color: #FF5252; }
-    .yellow { color: #FFC107; }
-    .blue { color: #42A5F5; }
-
-    /* Modal overlay */
-    .modal {
-        position: fixed;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        background-color: rgba(0,0,0,0.6);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 9999;
-    }
-    .modal-content {
-        background: #1e1e1e;
-        padding: 30px;
-        border-radius: 15px;
-        width: 400px;
-        text-align: left;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    .create-btn {
+        position: absolute;
+        top: 90px;
+        right: 40px;
     }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True,
+)
 
-# --- Load Tasks ---
-tasks = load_tasks()
-open_tasks = [t for t in tasks if t["status"] == "Open"]
-closed_tasks = [t for t in tasks if t["status"] == "Closed"]
+if st.button("➕ Create Task", key="open_modal"):
+    st.session_state.show_create_task = True
 
-now = datetime.now()
-def task_age_days(task): return (now - datetime.fromisoformat(task["created_at"])).days
+# --- Modal-like Create Task Form ---
+if st.session_state.show_create_task:
+    with st.container():
+        st.markdown(
+            """
+            <div style="
+                position: fixed;
+                top: 0; left: 0;
+                width: 100%; height: 100%;
+                background-color: rgba(0,0,0,0.6);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 9999;">
+            <div style="background-color: #1e1e1e; padding: 2rem; border-radius: 10px; width: 400px;">
+            """,
+            unsafe_allow_html=True,
+        )
 
-overdue_tasks = [t for t in open_tasks if task_age_days(t) > 5]
-nearing_deadline_tasks = [t for t in open_tasks if 3 <= task_age_days(t) <= 5]
+        st.subheader("Create New Task")
+        title = st.text_input("Task Title", key="modal_title")
+        desc = st.text_area("Description", key="modal_desc")
+        cat = st.selectbox("Category", ["Snowflake", "Matillion", "General"], index=0, key="modal_cat")
+        pri = st.selectbox("Priority", ["Low", "Medium", "High"], index=1, key="modal_pri")
 
-# --- Top Bar with Create Task Button ---
-col_left, col_right = st.columns([6, 1])
-with col_left:
-    st.header("📊 Dashboard")
-with col_right:
-    if st.button("+ Create Task"):
-        st.session_state["show_modal"] = True
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Save Task", key="save_modal"):
+                if not title.strip():
+                    st.error("Title required")
+                else:
+                    add_task(title.strip(), desc.strip(), category=cat, priority=pri)
+                    st.success("Task created successfully!")
+                    st.session_state.show_create_task = False
+                    try:
+                        st.rerun()
+                    except AttributeError:
+                        st.experimental_rerun()
+        with col2:
+            if st.button("❌ Cancel", key="cancel_modal"):
+                st.session_state.show_create_task = False
+                try:
+                    st.rerun()
+                except AttributeError:
+                    st.experimental_rerun()
 
-# --- KPI Layout ---
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">Open Tasks</div>
-            <div class="kpi-value blue">{len(open_tasks)}</div>
-            <div class="kpi-desc">Tasks currently in progress or not started</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-with col2:
-    st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">Overdue</div>
-            <div class="kpi-value red">{len(overdue_tasks)}</div>
-            <div class="kpi-desc">Tasks older than 5 days</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-with col3:
-    st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">Nearing Deadline</div>
-            <div class="kpi-value yellow">{len(nearing_deadline_tasks)}</div>
-            <div class="kpi-desc">Tasks 3–5 days old</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-with col4:
-    st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">Closed Tasks</div>
-            <div class="kpi-value green">{len(closed_tasks)}</div>
-            <div class="kpi-desc">Total tasks completed</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-st.markdown("---")
+        st.markdown("</div></div>", unsafe_allow_html=True)
 
 # --- Priority Section ---
-st.subheader("🔥 Priority: Overdue Tasks")
-st.caption("These tasks are over 5 days old and require immediate attention.")
-
-if not overdue_tasks:
-    st.success("No overdue tasks. Great job! 🎉")
+st.markdown("### 🚨 Priority: Overdue Tasks")
+if overdue:
+    for t in overdue:
+        st.warning(f"**{t['id']} - {t['title']}** · Created {t['created_at'][:10]}")
 else:
-    for task in overdue_tasks:
-        st.markdown(f"""
-        <div style="padding:10px; border-radius:10px; background:#2a2e38; margin:5px 0;">
-            <b>{task['title']}</b> — {task_age_days(task)} days old<br>
-            <small>{task['description']}</small><br>
-            <span style="color:#aaa;">🕒 Created: {task['created_at']}</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-# --- Modal Popup for Creating Task ---
-if "show_modal" not in st.session_state:
-    st.session_state["show_modal"] = False
-
-if st.session_state["show_modal"]:
-    with st.container():
-        st.markdown('<div class="modal">', unsafe_allow_html=True)
-        with st.form("create_task_form"):
-            st.markdown('<div class="modal-content">', unsafe_allow_html=True)
-            st.subheader("➕ Create New Task")
-            title = st.text_input("Task Title")
-            desc = st.text_area("Task Description")
-            submitted = st.form_submit_button("Save Task")
-            cancel = st.form_submit_button("Cancel")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            if submitted and title.strip():
-                new_task = {
-                    "id": f"TASK-{len(tasks)+1}",
-                    "title": title,
-                    "description": desc,
-                    "status": "Open",
-                    "created_at": datetime.now().isoformat(),
-                    "updated_at": datetime.now().isoformat(),
-                }
-                save_task(new_task)
-                st.session_state["show_modal"] = False
-                st.experimental_rerun()
-            elif cancel:
-                st.session_state["show_modal"] = False
-                st.experimental_rerun()
-
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.success("No overdue tasks. Great job!")
