@@ -1,3 +1,3 @@
-# services/__init__.py
-# make services a package and expose task manager helpers
-from .task_manager import load_tasks, save_tasks, add_task, get_task, update_task, delete_task
+from .task_manager import (
+    list_tasks, get_task, create_task, set_status, add_activity, by_status
+)
