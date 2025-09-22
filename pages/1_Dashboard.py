@@ -3,38 +3,42 @@ from datetime import datetime, timezone
 from services.task_manager import list_tasks, create_task
 from services.utils import to_local
 
-# ---------- Robust parsing ----------
-def parse_iso(dt_str):
-    if isinstance(dt_str, datetime):
-        return dt_str if dt_str.tzinfo else dt_str.replace(tzinfo=timezone.utc)
-    if not dt_str or not isinstance(dt_str, str):
-        return datetime.now(timezone.utc)
-    s = dt_str.strip()
-    try:
-        if s.endswith("Z"):
-            s = s.replace("Z", "+00:00")
-        return datetime.fromisoformat(s)
-    except Exception:
-        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
-            try:
-                dt = datetime.strptime(dt_str, fmt)
-                return dt.replace(tzinfo=timezone.utc)
-            except Exception:
-                continue
-        return datetime.now(timezone.utc)
-
+# --------------- Pure helpers (top) ---------------
 def ensure_state():
     for k, v in {
         "tp_show_create": False,
         "tp_new_title": "",
-        "tp_new_desc": ""
+        "tp_new_desc": "",
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-def age_days(created_at_any) -> int:
+def parse_any_datetime(val):
+    # Accept datetime, ISO with/without Z, or date; return aware UTC
+    try:
+        if isinstance(val, datetime):
+            return val if val.tzinfo else val.replace(tzinfo=timezone.utc)
+        if not val or not isinstance(val, str):
+            return datetime.now(timezone.utc)
+        s = val.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(s)
+        except Exception:
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+                try:
+                    dt = datetime.strptime(val, fmt)
+                    return dt.replace(tzinfo=timezone.utc)
+                except Exception:
+                    pass
+            return datetime.now(timezone.utc)
+    except Exception:
+        return datetime.now(timezone.utc)
+
+def age_days(created_at_val) -> int:
     now = datetime.now(timezone.utc)
-    dt = parse_iso(created_at_any)
+    dt = parse_any_datetime(created_at_val)
     return max(0, int((now - dt).total_seconds() // 86400))
 
 def kpi_card(title: str, value: int, subtitle: str, icon: str | None = None):
@@ -62,10 +66,14 @@ def confirm_create():
     if not title:
         st.warning("Please enter a title.")
         return
-    t = create_task(title, desc, [], 5)
-    cancel_create()
-    st.success(f"Task {t['id']} created")
-    st.rerun()
+    try:
+        t = create_task(title, desc, [], 5)
+        st.success(f"Task {t.get('id','')} created")
+    except Exception as e:
+        st.error(f"Could not create task: {e}")
+    finally:
+        cancel_create()
+        st.rerun()
 
 def render_create_modal():
     st.markdown(
@@ -89,21 +97,25 @@ def render_create_modal():
         st.button("Create Task", key="tp_confirm", type="primary", use_container_width=True, on_click=confirm_create)
     st.markdown("</div></div>", unsafe_allow_html=True)
 
-# ---------- Page ----------
+# --------------- Page config + state ---------------
 st.set_page_config(page_title="TaskPilot AI • Dashboard", layout="wide", initial_sidebar_state="expanded")
 ensure_state()
 
-header_left, header_right = st.columns([6,1])
-with header_left:
+# --------------- Header ---------------
+hl, hr = st.columns([6,1])
+with hl:
     st.markdown("## Dashboard")
-with header_right:
-    st.button("+  Create Task", key="tp_open", use_container_width=True, on_click=open_create_modal)
+with hr:
+    st.button("+  Create Task", key="tp_open_btn", use_container_width=True, on_click=open_create_modal)
 
 if st.session_state.tp_show_create:
     render_create_modal()
 
-# ---------- Data + KPIs (robust against bad data) ----------
-tasks = list_tasks() or []
+# --------------- Data & KPIs (defensive) ---------------
+try:
+    tasks = list_tasks() or []
+except Exception:
+    tasks = []
 
 open_cnt = 0
 closed_cnt = 0
@@ -112,16 +124,11 @@ nearing_cnt = 0
 
 for t in tasks:
     status = (t.get("status") or "").strip()
-    created_raw = t.get("created_at")
-    days = age_days(created_raw)
+    days = age_days(t.get("created_at"))
     if status in ("Closed", "Completed"):
         closed_cnt += 1
-    elif status in ("Open", "In Progress"):
-        open_cnt += 1
     else:
-        open_cnt += 1  # treat unknown as open
-
-    if status not in ("Closed", "Completed"):
+        open_cnt += 1
         if days > 5:
             overdue_cnt += 1
         elif 3 <= days <= 5:
@@ -139,26 +146,24 @@ with c3:
 with c4:
     kpi_card("Closed Tasks", closed_cnt, "Total tasks completed", "✅")
 
-# ---------- Priority: Overdue ----------
+# --------------- Priority: Overdue ---------------
 with st.container(border=True):
     st.markdown("**Priority: Overdue Tasks**")
     st.caption("These tasks are over 5 days old and require immediate attention.")
-    any_overdue = False
+    listed = False
     for t in tasks:
         status = (t.get("status") or "").strip()
-        if status in ("Closed","Completed"):
+        if status in ("Closed", "Completed"):
             continue
         if age_days(t.get("created_at")) > 5:
-            any_overdue = True
-            created_raw = t.get("created_at")
-            # to_local may expect ISO; guard with try
+            listed = True
             try:
-                created_disp = to_local(parse_iso(created_raw).isoformat())
+                created_disp = to_local(parse_any_datetime(t.get("created_at")).isoformat())
             except Exception:
                 created_disp = "-"
             st.markdown(f"- {t.get('title','Untitled')} • {status or 'Open'} • Created {created_disp}")
             if st.button("Open", key=f"tp_open_{t.get('id', id(t))}"):
                 st.experimental_set_query_params(task=t.get("id",""))
                 st.switch_page("pages/5_Task_Detail.py")
-    if not any_overdue:
+    if not listed:
         st.markdown("<div style='padding:24px;text-align:center;color:#9aa4b2'>No overdue tasks. Great job!</div>", unsafe_allow_html=True)
