@@ -21,7 +21,7 @@ with h2:
                 else:
                     t = create_task(title.strip(), (desc or "").strip(), [], 5)
                     st.success(f"Task {t.get('id','')} created")
-                    st.experimental_rerun()
+                    st.rerun()
 
 # --------- load tasks ----------
 try:
