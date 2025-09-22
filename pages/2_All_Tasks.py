@@ -1,57 +1,50 @@
 # pages/2_All_Tasks.py
 import streamlit as st
-from services.task_manager import load_tasks, add_task, save_tasks, delete_task
+from services.task_manager import load_tasks, add_task, delete_task
+from components.modal import show_create_task_modal
 
 st.title("📋 All Tasks")
 
-# Create new task form
-with st.expander("➕ Create New Task"):
-    title = st.text_input("Task Title", key="new_title")
-    desc = st.text_area("Description", key="new_desc")
-    cat = st.selectbox("Category", ["Snowflake", "Matillion", "General"], index=0, key="new_cat")
-    pri = st.selectbox("Priority", ["Low", "Medium", "High"], index=1, key="new_pri")
-    if st.button("Add Task"):
+if "show_modal" not in st.session_state:
+    st.session_state.show_modal = False
+
+if st.button("➕ Create Task"):
+    st.session_state.show_modal = True
+
+if st.session_state.show_modal:
+    title, desc, submit, cancel = show_create_task_modal()
+    if submit:
         if not title.strip():
-            st.error("Please enter a title.")
+            st.error("Title is required")
         else:
-            new = add_task(title.strip(), desc.strip(), category=cat, priority=pri)
-            st.success(f"Task {new['id']} created.")
-            # set state so Task Detail page can pick it up
-            st.session_state['selected_task'] = new['id']
-            st.session_state['page'] = 'task_detail'
-            # trigger rerun in a way that supports older/newer Streamlit
+            add_task(title.strip(), desc.strip())
+            st.success("Task created successfully!")
+            st.session_state.show_modal = False
             try:
                 st.rerun()
             except AttributeError:
                 st.experimental_rerun()
+    if cancel:
+        st.session_state.show_modal = False
+        try:
+            st.rerun()
+        except AttributeError:
+            st.experimental_rerun()
 
-# Show all tasks
+# --- Task list ---
 tasks = load_tasks()
-
 if not tasks:
-    st.info("No tasks yet. Use the form above to create one.")
+    st.info("No tasks yet.")
 else:
     for t in tasks:
-        cols = st.columns([4,1,1])
+        cols = st.columns([4,1])
         with cols[0]:
             st.markdown(f"**{t['id']} - {t['title']}**")
-            st.caption(f"{t.get('category','-')} · {t.get('priority','-')}")
-            st.write(t.get('description',''))
+            st.caption(t.get("description",""))
         with cols[1]:
-            if st.button("Open", key=f"open_{t['id']}"):
-                st.session_state['selected_task'] = t['id']
-                st.session_state['page'] = 'task_detail'
-                try:
-                    st.rerun()
-                except AttributeError:
-                    st.experimental_rerun()
-        with cols[2]:
-            if st.button("Delete", key=f"delete_{t['id']}"):
-                deleted = delete_task(t['id'])
-                if deleted:
-                    st.success("Deleted.")
-                else:
-                    st.error("Could not delete.")
+            if st.button("🗑️ Delete", key=f"del_{t['id']}"):
+                delete_task(t['id'])
+                st.success("Deleted.")
                 try:
                     st.rerun()
                 except AttributeError:
