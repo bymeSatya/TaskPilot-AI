@@ -1,41 +1,21 @@
-import os
-import streamlit as st
-from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.chat_history import InMemoryChatMessageHistory
-from langchain_core.runnables.history import RunnableWithMessageHistory
+import os, requests
 
-# Setup Groq
-groq_key = st.secrets["groq_key"]
-os.environ["GROQ_API_KEY"] = groq_key
+GROQ_API = "https://api.groq.com/openai/v1/chat/completions"
 
-model = ChatGroq(model="openai/gpt-oss-120b")
-
-# Prompt template
-prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", "You are an AI assistant specialized in Snowflake and Matillion. "
-                   "Analyze the situation and provide efficient, step-by-step guidance."),
-        MessagesPlaceholder(variable_name="history"),
-        ("human", "{input}")
-    ]
+SYSTEM = (
+ "You are TaskPilot AI, a focused assistant for Snowflake and Matillion tasks. "
+ "When asked, provide step-by-step guidance, cite Snowflake/Matillion docs URLs, "
+ "and suggest SQL, orchestration steps, and backtracking strategies."
 )
 
-# Chat with memory
-memory_store = {}
-
-def get_chat(session_id="default"):
-    if session_id not in memory_store:
-        memory_store[session_id] = InMemoryChatMessageHistory()
-    return RunnableWithMessageHistory(
-        model | prompt,
-        lambda: memory_store[session_id],
-        input_messages_key="input",
-        history_messages_key="history"
-    )
-
-def ask_ai(question, session_id="default"):
-    chat = get_chat(session_id)
-    response = chat.invoke({"input": question})
-    return response.content
+def groq_chat(messages, model="llama-3.1-70b-versatile", temperature=0.2):
+    key = os.getenv("GROQ_API_KEY") or os.getenv("groq_api_key")
+    if not key:
+        return "Configure GROQ_API_KEY in Streamlit secrets to enable AI guidance."
+    headers = {"Authorization": f"Bearer {key}"}
+    payload = {"model": model, "messages": [{"role":"system","content":SYSTEM}] + messages,
+               "temperature": temperature}
+    r = requests.post(GROQ_API, json=payload, headers=headers, timeout=60)
+    if r.status_code != 200:
+        return f"Groq API error: {r.status_code} {r.text[:200]}"
+    return r.json()["choices"][0]["message"]["content"].strip()
