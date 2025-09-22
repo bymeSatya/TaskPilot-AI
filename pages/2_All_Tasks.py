@@ -1,12 +1,28 @@
 import streamlit as st
 import datetime as dtm
-from services.task_manager import list_tasks
+from services.task_manager import list_tasks, create_task
 from services.utils import to_local
 
 st.set_page_config(page_title="TaskPilot AI • All Tasks", layout="wide", initial_sidebar_state="expanded")
 
-st.title("All Tasks")
-st.caption("A comprehensive list of all tasks, including open and closed items.")
+# ---------- Header with Create Task ----------
+h1, h2 = st.columns([6,2])
+with h1:
+    st.markdown("## All Tasks")
+    st.caption("A comprehensive list of all tasks, including open and closed items.")
+with h2:
+    with st.expander("Create New Task", expanded=False):
+        with st.form("all_tasks_create_form", clear_on_submit=True):
+            title = st.text_input("Title", placeholder="e.g. Fix login button")
+            desc = st.text_area("Description", placeholder="e.g. The login button on the main page is not working on Safari.")
+            btn = st.form_submit_button("Create Task", type="primary")
+            if btn:
+                if not (title or "").strip():
+                    st.warning("Please enter a title.")
+                else:
+                    t = create_task(title.strip(), (desc or "").strip(), [], 5)
+                    st.success(f"Task {t.get('id','')} created")
+                    st.rerun()
 
 # ---------- Helpers ----------
 def age_days(created_at_iso: str) -> int:
@@ -30,7 +46,7 @@ def urgency_bar(created_at_iso: str, status: str):
     days = age_days(created_at_iso)
     seg1 = min(2, max(0, days))          # 0-2 days green
     seg2 = min(2, max(0, days - 2))      # 3-4 days orange
-    seg3 = min(1, max(0, days - 4))      # 5+ days red (capped to 1 day segment)
+    seg3 = min(1, max(0, days - 4))      # 5+ days red (cap 1 day)
     w1 = (seg1 / 5) * 100.0
     w2 = (seg2 / 5) * 100.0
     w3 = (seg3 / 5) * 100.0
@@ -65,7 +81,7 @@ try:
 except Exception:
     tasks = []
 
-# ---------- Header card ----------
+# ---------- Header row ----------
 with st.container(border=True):
     c = st.columns([3,2,3,2,2])
     c[0].markdown("**Task**")
@@ -83,11 +99,12 @@ for t in tasks:
         created = t.get("created_at")
         completed = t.get("completed_at")
         status = t.get("status","Open")
+        tid = t.get("id","")
 
         with c1:
-            # Clickable title to open task detail page
-            if st.button(title, key=f"title_{t.get('id', id(t))}", help="Open task"):
-                st.experimental_set_query_params(task=t.get("id",""))
+            # Clickable title -> store in session_state and navigate (no query API conflicts)
+            if st.button(title, key=f"title_{tid}", help="Open task"):
+                st.session_state["selected_task_id"] = tid
                 st.switch_page("pages/5_Task_Detail.py")
             if desc:
                 st.caption(desc)
