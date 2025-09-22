@@ -86,3 +86,4 @@ def show_all_tasks():
             st.warning("Task deleted.")
             del st.session_state["open_task"]
             st.rerun()
+
