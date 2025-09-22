@@ -1,36 +1,70 @@
+# pages/5_Task_Detail.py
 import streamlit as st
-from services.task_manager import get_task_by_id, update_task
-from services.ai_assistant import ask_ai
+from datetime import datetime
+from services.task_manager import load_tasks, save_tasks, delete_task
+from dateutil import parser
 
-task_id = st.session_state.get("selected_task")
+st.set_page_config(layout="centered", page_title="Task Detail")
+
+task_id = st.query_params.get("task_id", [None])[0] if "task_id" in st.query_params else None
 if not task_id:
-    st.error("No task selected. Go back to All Tasks.")
+    st.error("No task selected.")
     st.stop()
 
-task = get_task_by_id(task_id)
+tasks = load_tasks()
+task = next((t for t in tasks if str(t["id"]) == str(task_id)), None)
+if not task:
+    st.error("Task not found.")
+    st.stop()
 
-st.title(task["title"])
-st.write(task["description"])
-st.write(f"**Status:** {task['status']}")
+# ---- Render Task Details ----
+st.header(task["title"])
+st.caption(task.get("description", ""))
 
-st.subheader("Activity")
-for u in task["updates"]:
-    st.markdown(f"- {u['time']}: {u['msg']}")
+status = task.get("status", "Open")
+st.write("**Status:**", status)
 
-st.subheader("Update Status")
-update_msg = st.text_area("Add update")
-if st.button("Save Update"):
-    if update_msg:
-        update_task(task_id, update_msg, status="Open")
-        st.success("Update saved! Refresh page.")
-    else:
-        st.warning("Please enter something.")
+created_at = parser.parse(task["created_at"]) if isinstance(task["created_at"], str) else task["created_at"]
+st.write("**Created:**", created_at.strftime("%b %d, %Y"))
 
-st.subheader("🤖 AI Guidance")
-q = st.text_input("Ask AI about this task")
-if st.button("Get Suggestion"):
-    if q:
-        suggestion = ask_ai(q, session_id=task_id)
-        st.info(suggestion)
-    else:
-        st.warning("Enter a question first.")
+if task.get("completed_at"):
+    completed_at = parser.parse(task["completed_at"])
+    st.write("**Completed:**", completed_at.strftime("%b %d, %Y"))
+else:
+    st.write("**Completed:** -")
+
+# Urgency (reuse segmented progress)
+days_old = (datetime.now() - created_at).days
+def render_progress(days_old: int):
+    segs = [2,2,1]
+    rem = min(max(0, days_old), 5)
+    fills, colors = [], ["#2ecc71", "#f39c12", "#e74c3c"]
+    for seg in segs:
+        fills.append(min(rem, seg))
+        rem -= min(rem, seg)
+    html = "<div style='display:flex;gap:6px;'>"
+    for i, seg in enumerate(segs):
+        perc = int((fills[i]/seg)*100)
+        html += f"<div style='flex:{seg};background:#0f1720;height:14px;border-radius:6px;'>"
+        html += f"<div style='width:{perc}%;background:{colors[i]};height:100%;'></div></div>"
+    html += f"<span style='color:#9fb4d6;margin-left:8px'>{days_old} day(s) old</span></div>"
+    return html
+st.markdown("**Urgency:**", unsafe_allow_html=True)
+st.markdown(render_progress(days_old), unsafe_allow_html=True)
+
+# ---- Actions ----
+st.markdown("---")
+col1, col2 = st.columns(2)
+with col1:
+    if status.lower() not in ("completed", "closed"):
+        if st.button("✅ Mark Completed"):
+            task["status"] = "Completed"
+            task["completed_at"] = datetime.now().isoformat()
+            save_tasks(tasks)
+            st.success("Task marked completed")
+            st.rerun()
+with col2:
+    if st.button("🗑️ Delete Task"):
+        delete_task(task["id"])
+        st.success("Task deleted")
+        st.switch_page("pages/2_All_Tasks.py")
