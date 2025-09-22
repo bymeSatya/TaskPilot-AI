@@ -1,53 +1,135 @@
 import streamlit as st
-from services.task_manager import get_task, add_activity, set_status
-from services.utils import to_local, pct_complete
+import datetime as dtm
+from services.task_manager import get_task, add_activity, set_status, list_tasks
+from services.task_manager import create_task  # optional reuse
+from services.utils import to_local
 from services.ai_assistant import groq_chat
 
-query = st.experimental_get_query_params()
-task_id = query.get("task",[None])[0]
-if not task_id:
+st.set_page_config(page_title="TaskPilot AI • Task", layout="wide", initial_sidebar_state="expanded")
+
+qid = st.experimental_get_query_params().get("task", [None])[0]
+if not qid:
     st.error("No task selected."); st.stop()
 
-t = get_task(task_id)
-if not t:
+task = get_task(qid)
+if not task:
     st.error("Task not found."); st.stop()
 
-st.title(t["title"])
-st.caption(f"Task ID: {t['id']}")
+# Top bar: Back + Title + Status pill + Delete
+c_top = st.columns([6,1,1])
+with c_top[0]:
+    if st.button("← Back to all tasks"):
+        st.switch_page("pages/2_All_Tasks.py")
+    st.markdown(f"### {task['title']}")
+    st.caption(f"Task ID: {task['id']}")
+with c_top[2]:
+    # Delete Task
+    if st.button("Delete Task", type="secondary"):
+        # simple delete
+        tasks = [t for t in list_tasks() if t.get("id") != task["id"]]
+        import json, os
+        os.makedirs("data", exist_ok=True)
+        with open("data/tasks.json","w") as f: json.dump(tasks, f, indent=2)
+        st.success("Task deleted")
+        st.experimental_set_query_params()
+        st.switch_page("pages/2_All_Tasks.py")
 
-col1, col2 = st.columns([2,1])
+left, right = st.columns([2,1])
 
-with col1:
+# ------------- Left: Description + Activity + AI Chat -------------
+with left:
     with st.container(border=True):
         st.subheader("Description")
-        st.write(t["description"])
+        st.write(task.get("description") or "-")
+
     with st.container(border=True):
         st.subheader("Activity")
-        for a in reversed(t.get("activity",[])):
-            st.markdown(f"- {to_local(a['at'])} — **{a['who']}**: {a['text']}")
-        if msg := st.text_input("Add update", key="new_update"):
-            if st.button("Add Update"):
-                add_activity(t["id"], "You", msg)
-                st.rerun()
+        acts = list(reversed(task.get("activity", [])))
+        if not acts:
+            st.caption("No updates yet.")
+        else:
+            for a in acts:
+                st.markdown(f"- {to_local(a['at'])} — **{a['who']}**: {a['text']}")
 
-with col2:
+        new_note = st.text_input("Add update", key="add_update")
+        if st.button("Add Update", key="btn_add_update"):
+            if new_note.strip():
+                add_activity(task["id"], "You", new_note.strip())
+                st.rerun()
+            else:
+                st.warning("Please type an update first.")
+
+    with st.container(border=True):
+        st.subheader("AI Chat")
+        st.caption("Ask questions about this task; AI will use the activity history as context.")
+        history = "
+".join([f"{a['who']}: {a['text']}" for a in task.get("activity", [])][-10:])
+        user_q = st.text_area("Message", placeholder="e.g., What was the last update on this task?")
+        if st.button("Send", key="btn_ai_chat"):
+            prompt = (
+                "You are an assistant for data engineering tasks, specialized in Snowflake, Matillion, SQL, and Python. "
+                "Answer concisely with steps and relevant SQL/examples.
+
+"
+                f"Task Title: {task['title']}
+"
+                f"Task Description: {task.get('description','')}
+"
+                f"Recent Activity:
+{history}
+
+"
+                f"User Question: {user_q}"
+            )
+            ans = groq_chat([{"role":"user","content": prompt}])
+            st.write(ans)
+
+# ------------- Right: Details + Update Status + AI Guidance -------------
+with right:
     with st.container(border=True):
         st.subheader("Details")
-        st.caption(f"Created At: {to_local(t['created_at'])}")
-        st.caption(f"Status: {t['status']}")
-        st.progress(pct_complete(t["created_at"], t.get("due_days",5))/100.0, text="Progress")
-        new_status = st.selectbox("Update Status", ["Open","In Progress","Closed"], index=["Open","In Progress","Closed"].index(t["status"]))
-        if st.button("Apply Status"):
-            set_status(t["id"], new_status)
+        st.caption(f"Created: {to_local(task['created_at'])}")
+        st.caption(f"Status: {task['status']}")
+        if task.get("completed_at"):
+            st.caption(f"Completed: {to_local(task['completed_at'])}")
+
+    with st.container(border=True):
+        st.subheader("Update Status")
+        new_status = st.selectbox(
+            "Select status",
+            ["Open","In Progress","Closed"],
+            index=["Open","In Progress","Closed"].index(task["status"])
+        )
+        note = st.text_input("Add a comment (optional)", key="status_note")
+        if st.button("Apply", key="btn_apply_status"):
+            set_status(task["id"], new_status)
+            if note.strip():
+                add_activity(task["id"], "You", f"Status set to {new_status}. {note.strip()}")
+            else:
+                add_activity(task["id"], "You", f"Status set to {new_status}.")
             st.rerun()
+
     with st.container(border=True):
         st.subheader("AI-Powered Guidance")
-        prompt = st.text_area("Ask about Snowflake/Matillion", placeholder="e.g., How to backtrack data changes in Snowflake for table X?")
-        if st.button("Get Suggestion") and prompt:
-            answer = groq_chat([
-                {"role":"user","content": f"Task title: {t['title']}
-Description: {t['description']}
-Question: {prompt}
-Constraints: Prefer official docs, show SQL or Matillion steps."}
-            ])
-            st.write(answer)
+        st.caption("Focused suggestions for Snowflake/Matillion/SQL/Python, using this task's context.")
+        guide_q = st.text_area("Question", placeholder="e.g., How to backtrack changes in Snowflake for this table?")
+        if st.button("Get Suggestion", key="btn_ai_suggest"):
+            acts = "
+".join([f"- {a['who']}: {a['text']}" for a in task.get("activity", [])][-10:])
+            prompt = (
+                "Act as a senior data engineer specialized in Snowflake and Matillion. "
+                "Based on the task description and recent activity, propose next steps with SQL, Matillion job hints, "
+                "and links to relevant official docs.
+
+"
+                f"Task: {task['title']}
+Description: {task.get('description','')}
+"
+                f"Recent Activity:
+{acts}
+
+"
+                f"Question: {guide_q}"
+            )
+            ans = groq_chat([{"role":"user","content": prompt}])
+            st.write(ans)
