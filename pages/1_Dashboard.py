@@ -1,26 +1,13 @@
 import streamlit as st
-import datetime as dtm  # alias module to avoid name collisions
+import datetime as dtm
 from services.task_manager import list_tasks, create_task
 from services.utils import to_local
 
-# ---------- helpers ----------
-def ensure_state():
-    defaults = {
-        "tp_show_create": False,
-        "tp_new_title": "",
-        "tp_new_desc": "",
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
+# ---------------- helpers ----------------
 def parse_any_datetime(val):
-    """Return timezone-aware UTC dt for wide variety inputs; never crash."""
     try:
-        # already a datetime
         if isinstance(val, dtm.datetime):
             return val if val.tzinfo else val.replace(tzinfo=dtm.timezone.utc)
-        # null or non-string
         if not val or not isinstance(val, str):
             return dtm.datetime.now(dtm.timezone.utc)
         s = val.strip()
@@ -55,70 +42,37 @@ def kpi_card(title: str, value: int, subtitle: str, icon: str | None = None):
         st.markdown(f"<div style='font-size:40px;line-height:1.0;padding:4px 0'>{value}</div>", unsafe_allow_html=True)
         st.caption(subtitle)
 
-def open_create_modal():
-    st.session_state.tp_show_create = True
-
-def cancel_create():
-    st.session_state.tp_show_create = False
-    st.session_state.tp_new_title = ""
-    st.session_state.tp_new_desc = ""
-
-def confirm_create():
-    title = (st.session_state.tp_new_title or "").strip()
-    desc = (st.session_state.tp_new_desc or "").strip()
-    if not title:
-        st.warning("Please enter a title.")
-        return
-    try:
-        t = create_task(title, desc, [], 5)
-        st.success(f"Task {t.get('id','')} created")
-    except Exception as e:
-        st.error(f"Could not create task: {e}")
-    finally:
-        cancel_create()
-        st.rerun()
-
-def render_create_modal():
-    st.markdown(
-        """
-        <div style="position:fixed; inset:0; background:rgba(0,0,0,0.55);
-                    display:flex; align-items:center; justify-content:center; z-index:9999;">
-          <div style="width:520px; background:#0f172a; color:#e6edf3;
-                      border:1px solid rgba(255,255,255,0.06); border-radius:12px;
-                      box-shadow:0 10px 30px rgba(0,0,0,0.35); padding:18px 20px;">
-            <h3 style="margin:4px 0 6px 0;">Create New Task</h3>
-            <div style="opacity:0.8; margin-bottom:16px;">Fill in the details below to create a new task.</div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.session_state.tp_new_title = st.text_input("Title", value=st.session_state.tp_new_title, key="tp_title", placeholder="e.g. Fix login button")
-    st.session_state.tp_new_desc = st.text_area("Description", value=st.session_state.tp_new_desc, key="tp_desc", placeholder="e.g. The login button on the main page is not working on Safari.")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.button("Cancel", key="tp_cancel", use_container_width=True, on_click=cancel_create)
-    with c2:
-        st.button("Create Task", key="tp_confirm", type="primary", use_container_width=True, on_click=confirm_create)
-    st.markdown("</div></div>", unsafe_allow_html=True)
-
-# ---------- page ----------
+# ---------------- page config ----------------
 st.set_page_config(page_title="TaskPilot AI • Dashboard", layout="wide", initial_sidebar_state="expanded")
-ensure_state()
 
-left, right = st.columns([6,1])
-with left:
+# ---------------- header ----------------
+h1, h2 = st.columns([6,2])
+with h1:
     st.markdown("## Dashboard")
-with right:
-    st.button("+  Create Task", key="tp_open_btn", use_container_width=True, on_click=open_create_modal)
+with h2:
+    with st.expander("Create New Task", expanded=False):
+        with st.form("create_task_form", clear_on_submit=True):
+            title = st.text_input("Title", placeholder="e.g. Fix login button", key="ct_title")
+            desc = st.text_area("Description", placeholder="e.g. The login button on the main page is not working on Safari.", key="ct_desc")
+            submitted = st.form_submit_button("Create Task", type="primary")
+            if submitted:
+                if not (title or "").strip():
+                    st.warning("Please enter a title.")
+                else:
+                    try:
+                        t = create_task(title.strip(), (desc or "").strip(), [], 5)
+                        st.success(f"Task {t.get('id','')} created")
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Could not create task: {e}")
 
-if st.session_state.tp_show_create:
-    render_create_modal()
-
-# ---------- load data + KPIs (defensive) ----------
+# ---------------- load tasks ----------------
 try:
     tasks = list_tasks() or []
 except Exception:
     tasks = []
 
+# ---------------- KPIs ----------------
 open_cnt = 0
 closed_cnt = 0
 overdue_cnt = 0
@@ -141,24 +95,23 @@ with c1:
     kpi_card("Open Tasks", open_cnt, "Tasks currently in progress or not started", "◦")
 with c2:
     kpi_card("Overdue", overdue_cnt, "Tasks older than 5 days", "⚠️")
-
 c3, c4 = st.columns(2)
 with c3:
     kpi_card("Nearing Deadline", nearing_cnt, "Tasks 3–5 days old", "🕒")
 with c4:
     kpi_card("Closed Tasks", closed_cnt, "Total tasks completed", "✅")
 
-# ---------- priority: overdue ----------
+# ---------------- priority overdue ----------------
 with st.container(border=True):
     st.markdown("**Priority: Overdue Tasks**")
     st.caption("These tasks are over 5 days old and require immediate attention.")
-    listed = False
+    any_overdue = False
     for t in tasks:
         status = (t.get("status") or "").strip()
         if status in ("Closed", "Completed"):
             continue
         if age_days(t.get("created_at")) > 5:
-            listed = True
+            any_overdue = True
             try:
                 created_disp = to_local(parse_any_datetime(t.get("created_at")).isoformat())
             except Exception:
@@ -167,5 +120,5 @@ with st.container(border=True):
             if st.button("Open", key=f"tp_open_{t.get('id', id(t))}"):
                 st.experimental_set_query_params(task=t.get("id",""))
                 st.switch_page("pages/5_Task_Detail.py")
-    if not listed:
+    if not any_overdue:
         st.markdown("<div style='padding:24px;text-align:center;color:#9aa4b2'>No overdue tasks. Great job!</div>", unsafe_allow_html=True)
