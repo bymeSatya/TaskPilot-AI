@@ -1,11 +1,11 @@
 import streamlit as st
 import datetime as dtm
 from services.task_manager import list_tasks, create_task
-from services.utils import to_local #parse_dt_safe
+from services.utils import to_local  # only dependency we assume exists
 
 st.set_page_config(page_title="TaskPilot AI • Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# --------- Header + Create Task (stable form) ---------
+# --------- header + create form ----------
 h1, h2 = st.columns([6,2])
 with h1:
     st.markdown("## Dashboard")
@@ -23,18 +23,35 @@ with h2:
                     st.success(f"Task {t.get('id','')} created")
                     st.experimental_rerun()
 
-# --------- Load tasks safely ---------
+# --------- load tasks ----------
 try:
     tasks = list_tasks() or []
 except Exception:
     tasks = []
 
-def age_days_safe(any_dt) -> int:
-    now = dtm.datetime.now(dtm.timezone.utc)
-    d = parse_dt_safe(any_dt)
-    return max(0, int((now - d).total_seconds() // 86400))
+# --------- small, inline age calc (self-contained) ----------
+def age_days_safe(iso_str) -> int:
+    try:
+        if not iso_str:
+            return 0
+        s = str(iso_str).strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            d = dtm.datetime.fromisoformat(s)
+        except Exception:
+            try:
+                d = dtm.datetime.strptime(str(iso_str), "%Y-%m-%d").replace(tzinfo=dtm.timezone.utc)
+            except Exception:
+                return 0
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=dtm.timezone.utc)
+        now = dtm.datetime.now(dtm.timezone.utc)
+        return max(0, int((now - d).total_seconds() // 86400))
+    except Exception:
+        return 0
 
-# --------- KPIs ---------
+# --------- KPIs ----------
 open_cnt = 0
 closed_cnt = 0
 overdue_cnt = 0
@@ -68,7 +85,7 @@ c3, c4 = st.columns(2)
 with c3: kpi_card("Nearing Deadline", nearing_cnt, "Tasks 3–5 days old", "🕒")
 with c4: kpi_card("Closed Tasks", closed_cnt, "Total tasks completed", "✅")
 
-# --------- Priority: Overdue ---------
+# --------- Priority: Overdue ----------
 with st.container(border=True):
     st.markdown("**Priority: Overdue Tasks**")
     st.caption("These tasks are over 5 days old and require immediate attention.")
@@ -80,7 +97,7 @@ with st.container(border=True):
         if age_days_safe(t.get("created_at")) > 5:
             any_overdue = True
             try:
-                created_disp = to_local(parse_dt_safe(t.get("created_at")).isoformat())
+                created_disp = to_local(str(t.get("created_at") or ""))
             except Exception:
                 created_disp = "-"
             st.markdown(f"- {t.get('title','Untitled')} • {status or 'Open'} • Created {created_disp}")
