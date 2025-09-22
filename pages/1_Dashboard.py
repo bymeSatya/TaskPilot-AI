@@ -1,52 +1,55 @@
 import streamlit as st
-from datetime import datetime, timezone
+import datetime as dtm  # alias module to avoid name collisions
 from services.task_manager import list_tasks, create_task
 from services.utils import to_local
 
-# --------------- Pure helpers (top) ---------------
+# ---------- helpers ----------
 def ensure_state():
-    for k, v in {
+    defaults = {
         "tp_show_create": False,
         "tp_new_title": "",
         "tp_new_desc": "",
-    }.items():
+    }
+    for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 def parse_any_datetime(val):
-    # Accept datetime, ISO with/without Z, or date; return aware UTC
+    """Return timezone-aware UTC dt for wide variety inputs; never crash."""
     try:
-        if isinstance(val, datetime):
-            return val if val.tzinfo else val.replace(tzinfo=timezone.utc)
+        # already a datetime
+        if isinstance(val, dtm.datetime):
+            return val if val.tzinfo else val.replace(tzinfo=dtm.timezone.utc)
+        # null or non-string
         if not val or not isinstance(val, str):
-            return datetime.now(timezone.utc)
+            return dtm.datetime.now(dtm.timezone.utc)
         s = val.strip()
         if s.endswith("Z"):
             s = s[:-1] + "+00:00"
         try:
-            return datetime.fromisoformat(s)
+            return dtm.datetime.fromisoformat(s)
         except Exception:
             for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
                 try:
-                    dt = datetime.strptime(val, fmt)
-                    return dt.replace(tzinfo=timezone.utc)
+                    d = dtm.datetime.strptime(val, fmt)
+                    return d.replace(tzinfo=dtm.timezone.utc)
                 except Exception:
                     pass
-            return datetime.now(timezone.utc)
+            return dtm.datetime.now(dtm.timezone.utc)
     except Exception:
-        return datetime.now(timezone.utc)
+        return dtm.datetime.now(dtm.timezone.utc)
 
-def age_days(created_at_val) -> int:
-    now = datetime.now(timezone.utc)
-    dt = parse_any_datetime(created_at_val)
-    return max(0, int((now - dt).total_seconds() // 86400))
+def age_days(created_any) -> int:
+    now = dtm.datetime.now(dtm.timezone.utc)
+    d = parse_any_datetime(created_any)
+    return max(0, int((now - d).total_seconds() // 86400))
 
 def kpi_card(title: str, value: int, subtitle: str, icon: str | None = None):
     with st.container(border=True):
-        head = st.columns([4,1])
-        with head[0]:
+        top = st.columns([4,1])
+        with top[0]:
             st.markdown(f"**{title}**")
-        with head[1]:
+        with top[1]:
             if icon:
                 st.markdown(f"<div style='text-align:right;font-size:18px'>{icon}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-size:40px;line-height:1.0;padding:4px 0'>{value}</div>", unsafe_allow_html=True)
@@ -97,21 +100,20 @@ def render_create_modal():
         st.button("Create Task", key="tp_confirm", type="primary", use_container_width=True, on_click=confirm_create)
     st.markdown("</div></div>", unsafe_allow_html=True)
 
-# --------------- Page config + state ---------------
+# ---------- page ----------
 st.set_page_config(page_title="TaskPilot AI • Dashboard", layout="wide", initial_sidebar_state="expanded")
 ensure_state()
 
-# --------------- Header ---------------
-hl, hr = st.columns([6,1])
-with hl:
+left, right = st.columns([6,1])
+with left:
     st.markdown("## Dashboard")
-with hr:
+with right:
     st.button("+  Create Task", key="tp_open_btn", use_container_width=True, on_click=open_create_modal)
 
 if st.session_state.tp_show_create:
     render_create_modal()
 
-# --------------- Data & KPIs (defensive) ---------------
+# ---------- load data + KPIs (defensive) ----------
 try:
     tasks = list_tasks() or []
 except Exception:
@@ -146,7 +148,7 @@ with c3:
 with c4:
     kpi_card("Closed Tasks", closed_cnt, "Total tasks completed", "✅")
 
-# --------------- Priority: Overdue ---------------
+# ---------- priority: overdue ----------
 with st.container(border=True):
     st.markdown("**Priority: Overdue Tasks**")
     st.caption("These tasks are over 5 days old and require immediate attention.")
