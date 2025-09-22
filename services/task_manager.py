@@ -45,3 +45,17 @@ def set_status(task_id: str, status: str):
 
 def by_status(status: str) -> List[Dict[str,Any]]:
     return [t for t in list_tasks() if t.get("status","").lower().startswith(status.lower())]
+
+from .utils import now_utc
+
+def set_status(task_id: str, status: str):
+    tasks = list_tasks()
+    for t in tasks:
+        if t["id"] == task_id:
+            t["status"] = status
+            if status in ("Closed","Completed") and not t.get("completed_at"):
+                t["completed_at"] = now_utc().isoformat()
+            elif status not in ("Closed","Completed"):
+                t.pop("completed_at", None)
+            break
+    save_json(tasks)
