@@ -94,4 +94,21 @@ for t in tasks:
     cols = st.columns([3,1,2.2,0.9,0.9])
     with cols[0]:
         st.markdown(f"<div class='task-card'><div class='title'>{t['title']}</div>"
-                    f"<div class='desc'>{t.get('description','')}</div></div>"
+                    f"<div class='desc'>{t.get('description','')}</div></div>", unsafe_allow_html=True)
+    with cols[1]:
+        cls = "status-open"
+        if status.lower() in ("in progress", "progress"): cls = "status-progress"
+        if status.lower() in ("completed", "closed"): cls = "status-completed"
+        st.markdown(f"<div class='badge {cls}'>{status}</div>", unsafe_allow_html=True)
+    with cols[2]:
+        st.markdown(render_progress_html(days_old), unsafe_allow_html=True)
+    with cols[3]:
+        st.markdown(f"<div class='meta'>{created_at.strftime('%b %d, %Y')}</div>", unsafe_allow_html=True)
+    with cols[4]:
+        if completed_at:
+            dt = parser.parse(completed_at)
+            st.markdown(f"<div class='meta'>{dt.strftime('%b %d, %Y')}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div class='meta'>-</div>", unsafe_allow_html=True)
+
+    st.markdown("</a>", unsafe_allow_html=True)
