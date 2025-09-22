@@ -1,37 +1,14 @@
 import streamlit as st
-from datetime import datetime, timezone
-from services.task_manager import list_tasks, create_task
+import datetime as dtm
+from services.task_manager import list_tasks
 from services.utils import to_local
+
+st.set_page_config(page_title="TaskPilot AI • All Tasks", layout="wide", initial_sidebar_state="expanded")
 
 st.title("All Tasks")
 st.caption("A comprehensive list of all tasks, including open and closed items.")
 
-# ---------- Create Task modal ----------
-def create_task_modal():
-    with st.popover("Create Task", use_container_width=False):  # popover looks like the screenshot
-        st.markdown("### Create New Task")
-        st.caption("Fill in the details below to create a new task.")
-        title = st.text_input("Title", placeholder="e.g. Fix login button")
-        desc = st.text_area("Description", placeholder="e.g. The login button on the main page is not working on Safari.")
-        due_days = 5  # fixed per requirement
-        if st.button("Create Task", type="primary"):
-            if title.strip():
-                t = create_task(title.strip(), desc.strip(), [], due_days)
-                st.success(f"Task {t['id']} created")
-                st.rerun()
-            else:
-                st.warning("Please enter a title.")
-
-# Top bar with modal trigger (right side)
-_, right = st.columns([6,1])
-with right:
-    create_task_modal()
-
-tasks = list_tasks()
-now = datetime.now(timezone.utc)
-
-import datetime as dtm
-
+# ---------- Helpers ----------
 def age_days(created_at_iso: str) -> int:
     try:
         if not created_at_iso:
@@ -51,17 +28,14 @@ def age_days(created_at_iso: str) -> int:
 
 def urgency_bar(created_at_iso: str, status: str):
     days = age_days(created_at_iso)
-    # 5-day scale: 0-2 green, 3-4 orange, 5+ red
-    seg1 = min(2, max(0, days))
-    seg2 = min(2, max(0, days - 2))
-    seg3 = min(1, max(0, days - 4))
-    # widths as percentages of full 5-day rail
+    seg1 = min(2, max(0, days))          # 0-2 days green
+    seg2 = min(2, max(0, days - 2))      # 3-4 days orange
+    seg3 = min(1, max(0, days - 4))      # 5+ days red (capped to 1 day segment)
     w1 = (seg1 / 5) * 100.0
     w2 = (seg2 / 5) * 100.0
     w3 = (seg3 / 5) * 100.0
     l2 = w1
     l3 = w1 + w2
-
     html = f"""
     <div style="height:10px;background:#2b3344;border-radius:8px;overflow:hidden;position:relative;">
       <div style="height:100%;width:{w1:.2f}%;background:#22c55e;position:absolute;left:0;"></div>
@@ -79,48 +53,59 @@ def status_pill(status: str):
         "Closed": ("#14291a","#34d399"),
         "Completed": ("#14291a","#34d399"),
     }
-    bg, fg = colors.get(status, ("#1f2a44","#e5e7eb"))
+    bg, fg = colors.get((status or "").strip(), ("#1f2a44","#e5e7eb"))
     st.markdown(
-        f"<span style='background:{bg};color:{fg};padding:4px 10px;border-radius:20px;font-size:12px'>{status}</span>",
+        f"<span style='background:{bg};color:{fg};padding:4px 10px;border-radius:20px;font-size:12px'>{status or '-'}</span>",
         unsafe_allow_html=True
     )
 
-# ---------- Table header ----------
+# ---------- Load ----------
+try:
+    tasks = list_tasks() or []
+except Exception:
+    tasks = []
+
+# ---------- Header card ----------
 with st.container(border=True):
-    cols = st.columns([3,2,3,2,2])
-    cols[0].markdown("**All Tasks**")
-    cols[1].markdown(" ")  # spacer
-    cols = st.columns([3,2,3,2,2])
-    cols[0].markdown("**Task**")
-    cols[1].markdown("**Status**")
-    cols[2].markdown("**Urgency**")
-    cols[3].markdown("**Created**")
-    cols[4].markdown("**Completed**")
+    c = st.columns([3,2,3,2,2])
+    c[0].markdown("**Task**")
+    c[1].markdown("**Status**")
+    c[2].markdown("**Urgency**")
+    c[3].markdown("**Created**")
+    c[4].markdown("**Completed**")
 
 # ---------- Rows ----------
 for t in tasks:
     with st.container(border=True):
         c1, c2, c3, c4, c5 = st.columns([3,2,3,2,2])
+        title = t.get("title","Untitled")
+        desc = (t.get("description") or "")[:80]
+        created = t.get("created_at")
+        completed = t.get("completed_at")
+        status = t.get("status","Open")
+
         with c1:
-            st.markdown(f"**{t['title']}**")
-            st.caption((t.get('description') or "")[:80])
-        with c2:
-            status_pill(t["status"])
-        with c3:
-            urgency_bar(t["created_at"], t["status"])
-        with c4:
-            st.markdown(to_local(t["created_at"]))
-        with c5:
-            completed_at = None
-            if t["status"] in ("Closed","Completed"):
-                # When status flipped to Closed, you may persist a completed_at in the JSON. If missing, show today.
-                completed_at = t.get("completed_at")
-                if not completed_at:
-                    completed_at = now.isoformat()
-            st.markdown(to_local(completed_at) if completed_at else "-")
-        # Clickable row button to open details
-        open_col = st.columns([0.8,0.2])[1]
-        with open_col:
-            if st.button("Open", key=f"open_{t['id']}"):
-                st.experimental_set_query_params(task=t["id"])
+            # Clickable title to open task detail page
+            if st.button(title, key=f"title_{t.get('id', id(t))}", help="Open task"):
+                st.experimental_set_query_params(task=t.get("id",""))
                 st.switch_page("pages/5_Task_Detail.py")
+            if desc:
+                st.caption(desc)
+
+        with c2:
+            status_pill(status)
+
+        with c3:
+            urgency_bar(created, status)
+
+        with c4:
+            try:
+                st.markdown(to_local(created))
+            except Exception:
+                st.markdown("-")
+
+        with c5:
+            try:
+                st.markdown(to_local(completed) if completed else "-")
+            except Exception:
+                st.markdown("-")
