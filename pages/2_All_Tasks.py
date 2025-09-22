@@ -30,28 +30,46 @@ with right:
 tasks = list_tasks()
 now = datetime.now(timezone.utc)
 
+import datetime as dtm
+
 def age_days(created_at_iso: str) -> int:
-    dt = datetime.fromisoformat(created_at_iso.replace("Z","+00:00"))
-    return max(0, (now - dt).days)
+    try:
+        if not created_at_iso:
+            return 0
+        s = str(created_at_iso).strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            d = dtm.datetime.fromisoformat(s)
+        except Exception:
+            d = dtm.datetime.strptime(str(created_at_iso), "%Y-%m-%d").replace(tzinfo=dtm.timezone.utc)
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=dtm.timezone.utc)
+        return max(0, (dtm.datetime.now(dtm.timezone.utc) - d).days)
+    except Exception:
+        return 0
 
 def urgency_bar(created_at_iso: str, status: str):
-    # 5-day window: 0-2 green, 3-4 orange, 5+ red
     days = age_days(created_at_iso)
-    seg1 = min(2, days)
+    # 5-day scale: 0-2 green, 3-4 orange, 5+ red
+    seg1 = min(2, max(0, days))
     seg2 = min(2, max(0, days - 2))
     seg3 = min(1, max(0, days - 4))
-    total = min(5, days)
-    # Width percentages against 5-day scale
-    w1, w2, w3 = seg1/5*100, seg2/5*100, seg3/5*100
-    # Background rail to 100%
-    rail = """
+    # widths as percentages of full 5-day rail
+    w1 = (seg1 / 5) * 100.0
+    w2 = (seg2 / 5) * 100.0
+    w3 = (seg3 / 5) * 100.0
+    l2 = w1
+    l3 = w1 + w2
+
+    html = f"""
     <div style="height:10px;background:#2b3344;border-radius:8px;overflow:hidden;position:relative;">
-      <div style="height:100%;width:%(w1).2f%%;background:#22c55e;"></div>
-      <div style="height:100%;width:%(w2).2f%%;background:#f59e0b;position:absolute;left:%(l2).2f%%;"></div>
-      <div style="height:100%;width:%(w3).2f%%;background:#ef4444;position:absolute;left:%(l3).2f%%;"></div>
+      <div style="height:100%;width:{w1:.2f}%;background:#22c55e;position:absolute;left:0;"></div>
+      <div style="height:100%;width:{w2:.2f}%;background:#f59e0b;position:absolute;left:{l2:.2f}%;"></div>
+      <div style="height:100%;width:{w3:.2f}%;background:#ef4444;position:absolute;left:{l3:.2f}%;"></div>
     </div>
-    """ % {"w1": w1, "w2": w2, "w3": w3, "l2": w1, "l3": w1 + w2}
-    st.markdown(rail, unsafe_allow_html=True)
+    """
+    st.markdown(html, unsafe_allow_html=True)
     st.caption(f"{days} days old")
 
 def status_pill(status: str):
