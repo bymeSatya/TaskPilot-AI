@@ -2,3 +2,8 @@ streamlit
 langchain
 langchain-groq
 python-dateutil
+streamlit==1.38.0
+pydantic==2.8.2
+python-dateutil==2.9.0.post0
+pytz==2024.1
+requests==2.32.3
