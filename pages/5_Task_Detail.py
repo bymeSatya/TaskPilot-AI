@@ -1,11 +1,11 @@
 import streamlit as st
-from services.task_manager import get_task, add_activity, set_status, delete_task, list_tasks
+from services.task_manager import get_task, add_activity, set_status, delete_task
 from services.utils import to_local
 from services.ai_assistant import groq_chat
 
 st.set_page_config(page_title="TaskPilot AI • Task", layout="wide", initial_sidebar_state="expanded")
 
-# Retrieve selection from session_state (set by All Tasks)
+# Get selected task id from session
 task_id = st.session_state.get("selected_task_id")
 if not task_id:
     st.error("No task selected."); st.stop()
@@ -15,14 +15,13 @@ if not task:
     st.error("Task not found."); st.stop()
 
 # Top bar
-top_l, top_r1, top_r2 = st.columns([6,1,1])
+top_l, _, top_r = st.columns([6,1,1])
 with top_l:
     if st.button("← Back to all tasks"):
         st.switch_page("pages/2_All_Tasks.py")
     st.markdown(f"### {task['title']}")
     st.caption(f"Task ID: {task['id']}")
-
-with top_r2:
+with top_r:
     if st.button("Delete Task"):
         delete_task(task["id"])
         st.success("Task deleted")
@@ -33,10 +32,12 @@ left, right = st.columns([2,1])
 
 # Left: Description, Activity, AI Chat
 with left:
+    # Description
     with st.container(border=True):
         st.subheader("Description")
         st.write(task.get("description") or "-")
 
+    # Activity
     with st.container(border=True):
         st.subheader("Activity")
         acts = list(reversed(task.get("activity", [])))
@@ -53,11 +54,14 @@ with left:
             else:
                 st.warning("Please type an update first.")
 
+    # AI Chat
     with st.container(border=True):
         st.subheader("AI Chat")
         st.caption("Ask questions about this task; AI will use the activity history as context.")
+        # Build a single-line history string safely
+        activity_lines = [f"{a['who']}: {a['text']}" for a in task.get("activity", [])]
         history = "
-".join([f"{a['who']}: {a['text']}" for a in task.get("activity", [])][-10:])
+".join(activity_lines[-10:])
         user_q = st.text_area("Message", placeholder="e.g., What was the last update on this task?")
         if st.button("Send", key="td_ai_chat"):
             prompt = (
@@ -80,6 +84,7 @@ with left:
 
 # Right: Details, Update Status, AI Guidance
 with right:
+    # Details
     with st.container(border=True):
         st.subheader("Details")
         st.caption(f"Created: {to_local(task['created_at'])}")
@@ -87,6 +92,7 @@ with right:
         if task.get("completed_at"):
             st.caption(f"Completed: {to_local(task['completed_at'])}")
 
+    # Update Status
     with st.container(border=True):
         st.subheader("Update Status")
         new_status = st.selectbox(
@@ -103,6 +109,7 @@ with right:
             add_activity(task["id"], "You", msg)
             st.rerun()
 
+    # AI-Powered Guidance
     with st.container(border=True):
         st.subheader("AI-Powered Guidance")
         st.caption("Focused suggestions for Snowflake/Matillion/SQL/Python, using this task's context.")
@@ -112,8 +119,8 @@ with right:
 ".join([f"- {a['who']}: {a['text']}" for a in task.get("activity", [])][-10:])
             prompt = (
                 "Act as a senior data engineer specialized in Snowflake and Matillion. "
-                "Based on the task description and recent activity, propose next steps with SQL, Matillion job hints, "
-                "and links to relevant official docs.
+                "Based on the task description and recent activity, propose next steps with SQL and Matillion job hints, "
+                "and point to relevant official docs.
 
 "
                 f"Task: {task['title']}
