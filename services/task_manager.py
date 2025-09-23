@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import List, Dict, Any
-import os, json
-import datetime as dtm
+import os, json, datetime as dtm
 
 DATA_PATH = os.path.join("data", "tasks.json")
 
@@ -30,12 +29,13 @@ def get_task(task_id: str) -> Dict[str,Any] | None:
             return t
     return None
 
+def _new_id() -> str:
+    return f"TASK-{int(dtm.datetime.now(dtm.timezone.utc).timestamp())%10000000}"
+
 def create_task(title: str, description: str, tags=None, due_days: int = 5) -> Dict[str,Any]:
     tasks = _load()
-    # simple id
-    new_id = f"TASK-{int(dtm.datetime.now(dtm.timezone.utc).timestamp())%100000}"
-    task = {
-        "id": new_id,
+    t = {
+        "id": _new_id(),
         "title": title,
         "description": description,
         "status": "Open",
@@ -44,9 +44,9 @@ def create_task(title: str, description: str, tags=None, due_days: int = 5) -> D
         "activity": [],
         "tags": tags or []
     }
-    tasks.append(task)
+    tasks.append(t)
     _save(tasks)
-    return task
+    return t
 
 def set_status(task_id: str, status: str):
     tasks = _load()
@@ -71,6 +71,6 @@ def add_activity(task_id: str, who: str, text: str):
             break
     _save(tasks)
 
-def by_status(prefix: str) -> List[Dict[str,Any]]:
-    p = (prefix or "").lower()
-    return [t for t in _load() if (t.get("status") or "").lower().startswith(p)]
+def delete_task(task_id: str):
+    tasks = [t for t in _load() if t.get("id") != task_id]
+    _save(tasks)
