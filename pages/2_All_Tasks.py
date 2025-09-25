@@ -5,7 +5,7 @@ from services.utils import to_local
 
 st.set_page_config(page_title="TaskPilot AI • All Tasks", layout="wide", initial_sidebar_state="expanded")
 
-# ---------- Header with Create Task ----------
+# Header with Create Task
 h1, h2 = st.columns([6,2])
 with h1:
     st.markdown("## All Tasks")
@@ -24,7 +24,6 @@ with h2:
                     st.success(f"Task {t.get('id','')} created")
                     st.rerun()
 
-# ---------- Helpers ----------
 def age_days(created_at_iso: str) -> int:
     try:
         if not created_at_iso:
@@ -44,14 +43,13 @@ def age_days(created_at_iso: str) -> int:
 
 def urgency_bar(created_at_iso: str, status: str):
     days = age_days(created_at_iso)
-    seg1 = min(2, max(0, days))          # 0-2 days green
-    seg2 = min(2, max(0, days - 2))      # 3-4 days orange
-    seg3 = min(1, max(0, days - 4))      # 5+ days red (cap 1 day)
+    seg1 = min(2, max(0, days))
+    seg2 = min(2, max(0, days - 2))
+    seg3 = min(1, max(0, days - 4))
     w1 = (seg1 / 5) * 100.0
     w2 = (seg2 / 5) * 100.0
     w3 = (seg3 / 5) * 100.0
-    l2 = w1
-    l3 = w1 + w2
+    l2 = w1; l3 = w1 + w2
     html = f"""
     <div style="height:10px;background:#2b3344;border-radius:8px;overflow:hidden;position:relative;">
       <div style="height:100%;width:{w1:.2f}%;background:#22c55e;position:absolute;left:0;"></div>
@@ -75,13 +73,11 @@ def status_pill(status: str):
         unsafe_allow_html=True
     )
 
-# ---------- Load ----------
 try:
     tasks = list_tasks() or []
 except Exception:
     tasks = []
 
-# ---------- Header row ----------
 with st.container(border=True):
     c = st.columns([3,2,3,2,2])
     c[0].markdown("**Task**")
@@ -90,7 +86,6 @@ with st.container(border=True):
     c[3].markdown("**Created**")
     c[4].markdown("**Completed**")
 
-# ---------- Rows ----------
 for t in tasks:
     with st.container(border=True):
         c1, c2, c3, c4, c5 = st.columns([3,2,3,2,2])
@@ -102,27 +97,18 @@ for t in tasks:
         tid = t.get("id","")
 
         with c1:
-            # Clickable title -> store in session_state and navigate (no query API conflicts)
             if st.button(title, key=f"title_{tid}", help="Open task"):
                 st.session_state["selected_task_id"] = tid
                 st.switch_page("pages/5_Task_Detail.py")
             if desc:
                 st.caption(desc)
-
         with c2:
             status_pill(status)
-
         with c3:
             urgency_bar(created, status)
-
         with c4:
-            try:
-                st.markdown(to_local(created))
-            except Exception:
-                st.markdown("-")
-
+            try: st.markdown(to_local(created))
+            except Exception: st.markdown("-")
         with c5:
-            try:
-                st.markdown(to_local(completed) if completed else "-")
-            except Exception:
-                st.markdown("-")
+            try: st.markdown(to_local(completed) if completed else "-")
+            except Exception: st.markdown("-")
