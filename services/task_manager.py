@@ -66,7 +66,8 @@ def add_activity(task_id: str, who: str, text: str):
         if t.get("id") == task_id:
             t.setdefault("activity", []).append({
                 "at": dtm.datetime.now(dtm.timezone.utc).isoformat(),
-                "who": who, "text": text
+                "who": who,
+                "text": text
             })
             break
     _save(tasks)
@@ -74,3 +75,7 @@ def add_activity(task_id: str, who: str, text: str):
 def delete_task(task_id: str):
     tasks = [t for t in _load() if t.get("id") != task_id]
     _save(tasks)
+
+def by_status(prefix: str) -> List[Dict[str,Any]]:
+    p = (prefix or "").lower()
+    return [t for t in _load() if (t.get("status") or "").lower().startswith(p)]
